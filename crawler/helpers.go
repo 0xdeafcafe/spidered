@@ -5,15 +5,25 @@ import (
 
 	"net/http"
 
-	"strings"
-
 	"golang.org/x/net/html"
 )
+
+// IsRootURL checks if a given URL is a url that doesn't have a path
+func IsRootURL(domain *url.URL) bool {
+	if domain.Path == "" {
+		domain.Path = "/"
+	}
+
+	return domain.Path == "/"
+}
 
 // ConvertToURL converts a scraped URL to a URL with the correct scheme and host if it's
 // missing.
 func ConvertToURL(path string, domain *url.URL) *url.URL {
 	pathURL, _ := url.Parse(path)
+
+	// Remove fragments from the URL
+	pathURL.Fragment = ""
 
 	if pathURL.Scheme == "" {
 		pathURL.Scheme = domain.Scheme
@@ -23,10 +33,6 @@ func ConvertToURL(path string, domain *url.URL) *url.URL {
 		pathURL.Host = domain.Host
 	}
 
-	if strings.ContainsRune(pathURL.Path, '#') {
-		pathURL.Path = strings.Split(pathURL.Path, "#")[0]
-	}
-
 	if pathURL.Path == "" {
 		pathURL.Path = "/"
 	}
@@ -34,24 +40,24 @@ func ConvertToURL(path string, domain *url.URL) *url.URL {
 	return pathURL
 }
 
-// IsSatisfiedURL checks if a URL is a valid http url, and on the same domain as the base
+// IsRelevantURL checks if a URL is a valid http url, and on the same domain as the base
 // domain.
-func IsSatisfiedURL(baseDomain *url.URL, crawledDomain *url.URL) bool {
-	satisfied := true
+func IsRelevantURL(baseDomain *url.URL, crawledDomain *url.URL) bool {
+	relevant := true
 
 	if baseDomain.Host != crawledDomain.Host {
-		satisfied = false
+		relevant = false
 	}
 
 	if crawledDomain.Host == "" {
-		satisfied = false
+		relevant = false
 	}
 
 	if crawledDomain.Scheme != "http" && crawledDomain.Scheme != "https" {
-		satisfied = false
+		relevant = false
 	}
 
-	return satisfied
+	return relevant
 }
 
 // GetAttribute returns the value of an attribute inside an html token by it's name.

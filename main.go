@@ -1,11 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 
-	log "github.com/Sirupsen/logrus"
 	"gopkg.in/urfave/cli.v1"
 
 	"github.com/0xdeafcafe/spidered/crawler"
@@ -49,7 +49,7 @@ func main() {
 					Destination: &socketLimit,
 				},
 				cli.BoolFlag{
-					Name:        "ignore-robots, r",
+					Name:        "ignore-robots, ir",
 					Usage:       "If the crawler should ignore a domains robots.txt file.",
 					Destination: &ignoreRobots,
 				},
@@ -62,27 +62,26 @@ func main() {
 			},
 			Action: func(c *cli.Context) error {
 				if !validateAndSetLogLevel(logLevel) {
-					fmt.Println("Invalid log level. Reference help.")
-					return nil
+					return errors.New("invalid log level, see help")
 				}
 
 				if strURL == "" {
-					log.Errorln("You must provide a url. Reference help.")
-					return nil
+					return errors.New("you must provide a url, see help")
 				}
 
 				if socketLimit <= 0 {
-					log.Errorln("You must provide a socket limit greater than 0.")
-					return nil
+					return errors.New("socket limit must be greater than 0")
 				}
 
 				url, err := url.Parse(strURL)
 				if err != nil {
-					log.Errorln("The given url is not valid.")
-					return nil
+					return errors.New("provided url is not valid")
 				}
 
-				crawl := crawler.NewCrawler(url, socketLimit, ignoreRobots, "")
+				crawl, err := crawler.NewCrawler(url, socketLimit, ignoreRobots, "")
+				if err != nil {
+					return err
+				}
 				crawl.Crawl()
 
 				for _, entity := range crawl.Entities {

@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io/ioutil"
@@ -15,6 +16,8 @@ import (
 	"bytes"
 
 	"time"
+
+	"net/http"
 
 	"github.com/0xdeafcafe/spidered/crawler/models"
 )
@@ -33,7 +36,7 @@ type Crawler struct {
 }
 
 // NewCrawler creates a new Crawler with the specified arguments
-func NewCrawler(domain *url.URL, socketLimit int, ignoreRobots bool, userAgent string) (crawler *Crawler) {
+func NewCrawler(domain *url.URL, socketLimit int, ignoreRobots bool, userAgent string) (crawler *Crawler, err error) {
 	crawler = &Crawler{
 		Domain:          domain,
 		CustomUserAgent: customUserAgent,
@@ -43,41 +46,55 @@ func NewCrawler(domain *url.URL, socketLimit int, ignoreRobots bool, userAgent s
 		Mutex:           &sync.Mutex{},
 	}
 
+	// Check the URL given is a root url, without a path
+	if !IsRootURL(domain) {
+		return nil, errors.New("provided url is not a root url")
+	}
+
 	// Set custom useragent
 	if userAgent != "" {
 		crawler.CustomUserAgent = userAgent
 	}
 
 	log.Infoln(fmt.Sprintf("Created a new Crawler - url: %s, socketLimit: %d, ignoreRobots: %t, customUserAgent: %s", domain.String(), socketLimit, ignoreRobots, crawler.CustomUserAgent))
-	return crawler
+	return crawler, nil
 }
 
 // Crawl starts crawling the specified domain.
 func (crawler Crawler) Crawl() {
 	var wg sync.WaitGroup
 	completedURLs := set.New()
+
+	// Create the socket limit
 	socketLimit := make(chan int, crawler.SocketLimit)
 	for i := 0; i < crawler.SocketLimit; i++ {
 		socketLimit <- 1
 	}
 
+	// Check if the user wants to ignore the robots.txt
 	if !crawler.IgnoreRobots {
 		resp, err := MakeRequest("GET", crawler.Domain.String()+"robots.txt", crawler.CustomUserAgent)
 		if err != nil {
 			log.Fatalln(err)
 			return
 		}
-
 		defer resp.Body.Close()
-		robots, err := robotstxt.FromResponse(resp)
-		if err != nil {
-			log.Fatalln(err)
-			return
+
+		if resp.StatusCode == http.StatusOK {
+			robots, err := robotstxt.FromResponse(resp)
+			fmt.Println(resp)
+			if err != nil {
+				log.Fatalln(err)
+				return
+			}
+			crawler.RobotsData = robots
+		} else {
+			log.Warnln(fmt.Sprintf("Unable to load robots for this domain. Response was %d", resp.StatusCode))
 		}
 
-		crawler.RobotsData = robots
 	}
 
+	// Increment the WaitGroup, crawl, and wait until we've finished crawling
 	wg.Add(1)
 	go crawlURL(&crawler, crawler.Domain, completedURLs, &wg, socketLimit)
 	wg.Wait()
@@ -89,6 +106,7 @@ func crawlURL(crawler *Crawler, url *url.URL, completedURLs *set.Set, wg *sync.W
 	completedURLs.Add(urlStr)
 	log.Infoln(fmt.Sprintf("Crawling new URL: %s", urlStr))
 
+	// Wait until we have an opening to open this socket
 	<-socketLimit
 	resp, err := MakeRequest("GET", urlStr, crawler.CustomUserAgent)
 	socketLimit <- 1
@@ -106,6 +124,7 @@ func crawlURL(crawler *Crawler, url *url.URL, completedURLs *set.Set, wg *sync.W
 		return
 	}
 
+	// Create new page entity
 	pageEntity := &models.PageEntity{
 		URL:         url,
 		Path:        url.Path,
@@ -118,17 +137,20 @@ func crawlURL(crawler *Crawler, url *url.URL, completedURLs *set.Set, wg *sync.W
 		ResponseChecksum: crc32.ChecksumIEEE(body),
 	}
 
+	// Create new reader for the tokenizer
 	tokenReader := bytes.NewReader(body)
 	tokenizer := html.NewTokenizer(tokenReader)
 	for {
 		tokenType := tokenizer.Next()
 		switch {
 		case tokenType == html.ErrorToken:
+			// We've hit the end of the page - save page entity and return
 			crawler.Mutex.Lock()
 			crawler.Entities[urlStr] = pageEntity
 			crawler.Mutex.Unlock()
 			log.Infoln(fmt.Sprintf("URL crawling complete: %s", urlStr))
 			return
+
 		case tokenType == html.StartTagToken:
 			token := tokenizer.Token()
 
@@ -141,22 +163,29 @@ func crawlURL(crawler *Crawler, url *url.URL, completedURLs *set.Set, wg *sync.W
 				continue
 			}
 
+			// Convert the URL and check if we want to crawl it
 			url := ConvertToURL(href, crawler.Domain)
-			if !IsSatisfiedURL(crawler.Domain, url) {
-				log.Infoln(fmt.Sprintf("Skipping non-satisfied URL: %s", urlStr))
+			if !IsRelevantURL(crawler.Domain, url) {
+				log.Infoln(fmt.Sprintf("Skipping irrelevant URL: %s", url))
 				continue
 			}
 
-			if crawler.IgnoreRobots || !crawler.RobotsData.TestAgent(url.Path, crawler.CustomUserAgent) {
-				log.Infoln(fmt.Sprintf("Skipping URL as per robot: %s", urlStr))
-				continue
+			// Check if we're obeying our robot overlords
+			if !crawler.IgnoreRobots && crawler.RobotsData != nil {
+				allowURL := crawler.RobotsData.TestAgent(url.Path, crawler.CustomUserAgent)
+				if !allowURL {
+					log.Infoln(fmt.Sprintf("Skipping URL as per robot: %s", url))
+					continue
+				}
 			}
 
+			// If the URL has already been crawled, skip it
 			if completedURLs.Has(url.String()) {
-				log.Infoln(fmt.Sprintf("URL already crawled: %s", urlStr))
+				log.Infoln(fmt.Sprintf("URL already crawled: %s", url))
 				continue
 			}
 
+			// Increment the WaitGroup and crawl the URL
 			wg.Add(1)
 			go crawlURL(crawler, url, completedURLs, wg, socketLimit)
 			break
