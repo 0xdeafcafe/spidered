@@ -39,11 +39,11 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:        "url, u",
-					Usage:       "The url to crawl - eg. tomblomfield.com",
+					Usage:       "The url to crawl - eg. http://tomblomfield.com/",
 					Destination: &strURL,
 				},
 				cli.IntFlag{
-					Name:        "socket-limit, s",
+					Name:        "socket-limit, sl",
 					Value:       15,
 					Usage:       "The max number of socket connections to allow.",
 					Destination: &socketLimit,
@@ -54,7 +54,7 @@ func main() {
 					Destination: &ignoreRobots,
 				},
 				cli.StringFlag{
-					Name:        "custom-useragent, ua",
+					Name:        "user-agent, ua",
 					Usage:       "The UserAgent the bot should send when crawling.",
 					Value:       "Googlebot",
 					Destination: &customUserAgent,
