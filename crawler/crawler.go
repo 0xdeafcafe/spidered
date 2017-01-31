@@ -2,30 +2,34 @@ package crawler
 
 import (
 	"fmt"
+	"hash/crc32"
+	"io/ioutil"
 	"net/url"
 	"sync"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/temoto/robotstxt"
 	"golang.org/x/net/html"
 	"gopkg.in/fatih/set.v0"
 
+	"bytes"
+
+	"time"
+
 	"github.com/0xdeafcafe/spidered/crawler/models"
 )
 
 var customUserAgent = "SpideredBot"
 
-// Crawler ..
+// Crawler holds information about a crawler
 type Crawler struct {
 	Domain          *url.URL
 	CustomUserAgent string
 	IgnoreRobots    bool
 	RobotsData      *robotstxt.RobotsData
 	SocketLimit     int
-	Entities        map[string]models.PageEntity
+	Entities        map[string]*models.PageEntity
 	Mutex           *sync.Mutex
-	CrawlTime       time.Duration
 }
 
 // NewCrawler creates a new Crawler with the specified arguments
@@ -35,7 +39,7 @@ func NewCrawler(domain *url.URL, socketLimit int, ignoreRobots bool, userAgent s
 		CustomUserAgent: customUserAgent,
 		IgnoreRobots:    ignoreRobots,
 		SocketLimit:     socketLimit,
-		Entities:        make(map[string]models.PageEntity),
+		Entities:        make(map[string]*models.PageEntity),
 		Mutex:           &sync.Mutex{},
 	}
 
@@ -74,12 +78,9 @@ func (crawler Crawler) Crawl() {
 		crawler.RobotsData = robots
 	}
 
-	// Start Stopwatch
-	startTime := time.Now().UTC()
 	wg.Add(1)
 	go crawlURL(&crawler, crawler.Domain, completedURLs, &wg, socketLimit)
 	wg.Wait()
-	crawler.CrawlTime = time.Now().UTC().Sub(startTime)
 }
 
 func crawlURL(crawler *Crawler, url *url.URL, completedURLs *set.Set, wg *sync.WaitGroup, socketLimit chan int) {
@@ -98,19 +99,33 @@ func crawlURL(crawler *Crawler, url *url.URL, completedURLs *set.Set, wg *sync.W
 	}
 	defer resp.Body.Close()
 
-	tokenizer := html.NewTokenizer(resp.Body)
+	// Read Body into []byte
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	pageEntity := &models.PageEntity{
+		URL:         url,
+		Path:        url.Path,
+		ContentType: resp.Header.Get("Content-Type"),
+		CrawledAt:   time.Now(),
+
+		ResponseHeaders:  resp.Header,
+		ResponseStatus:   resp.StatusCode,
+		ResponseSize:     len(body),
+		ResponseChecksum: crc32.ChecksumIEEE(body),
+	}
+
+	tokenReader := bytes.NewReader(body)
+	tokenizer := html.NewTokenizer(tokenReader)
 	for {
 		tokenType := tokenizer.Next()
 		switch {
 		case tokenType == html.ErrorToken:
 			crawler.Mutex.Lock()
-			crawler.Entities[urlStr] = models.PageEntity{
-				URL:         url,
-				Path:        url.Path,
-				StatusCode:  resp.StatusCode,
-				ContentType: resp.Header.Get("Content-Type"),
-				ContentSize: resp.ContentLength,
-			}
+			crawler.Entities[urlStr] = pageEntity
 			crawler.Mutex.Unlock()
 			log.Infoln(fmt.Sprintf("URL crawling complete: %s", urlStr))
 			return

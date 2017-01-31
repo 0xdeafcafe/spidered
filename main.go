@@ -85,10 +85,19 @@ func main() {
 				crawl := crawler.NewCrawler(url, socketLimit, ignoreRobots, "")
 				crawl.Crawl()
 
-				log.Infoln(crawl.CrawlTime.Nanoseconds())
-				// log.Infoln(fmt.Sprintf("Crawl completed in %f seconds", crawl.CrawlTime.Seconds()))
-				for _, v := range crawl.Entities {
-					fmt.Println(v)
+				for _, entity := range crawl.Entities {
+					fmt.Println()
+					fmt.Println(fmt.Sprintf("URL: %s", entity.URL))
+					fmt.Println(fmt.Sprintf("   - Path: %s", entity.Path))
+					fmt.Println(fmt.Sprintf("   - Crawled At: %s", entity.CrawledAt))
+					fmt.Println(fmt.Sprintf("   - Content-Type: %s", entity.ContentType))
+					fmt.Println(fmt.Sprintf("   - Response Status: %d", entity.ResponseStatus))
+					fmt.Println(fmt.Sprintf("   - Response Size (bytes): %d", entity.ResponseSize))
+					fmt.Println(fmt.Sprintf("   - Response Checksum (CRC32-IEEE): %d", entity.ResponseChecksum))
+					fmt.Println(fmt.Sprintf("   - Response Headers: (%d)", len(entity.ResponseHeaders)))
+					for header, headerValues := range entity.ResponseHeaders {
+						fmt.Println(fmt.Sprintf("       - %s: %s", header, headerValues))
+					}
 				}
 
 				return nil

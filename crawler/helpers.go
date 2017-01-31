@@ -10,7 +10,8 @@ import (
 	"golang.org/x/net/html"
 )
 
-// ConvertToURL ..
+// ConvertToURL converts a scraped URL to a URL with the correct scheme and host if it's
+// missing.
 func ConvertToURL(path string, domain *url.URL) *url.URL {
 	pathURL, _ := url.Parse(path)
 
@@ -26,10 +27,15 @@ func ConvertToURL(path string, domain *url.URL) *url.URL {
 		pathURL.Path = strings.Split(pathURL.Path, "#")[0]
 	}
 
+	if pathURL.Path == "" {
+		pathURL.Path = "/"
+	}
+
 	return pathURL
 }
 
-// IsSatisfiedURL ..
+// IsSatisfiedURL checks if a URL is a valid http url, and on the same domain as the base
+// domain.
 func IsSatisfiedURL(baseDomain *url.URL, crawledDomain *url.URL) bool {
 	satisfied := true
 
@@ -48,7 +54,7 @@ func IsSatisfiedURL(baseDomain *url.URL, crawledDomain *url.URL) bool {
 	return satisfied
 }
 
-// GetAttribute ..
+// GetAttribute returns the value of an attribute inside an html token by it's name.
 func GetAttribute(token html.Token, attrName string) string {
 	for _, a := range token.Attr {
 		if a.Key == attrName {
@@ -59,7 +65,7 @@ func GetAttribute(token html.Token, attrName string) string {
 	return ""
 }
 
-// MakeRequest ..
+// MakeRequest makes an HTTP with the specified method, url, and user agent.
 func MakeRequest(method, url, userAgent string) (*http.Response, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest(method, url, nil)
